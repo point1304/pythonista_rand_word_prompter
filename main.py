@@ -196,6 +196,7 @@ class MainView(View):
 				self.shuffle_btn_tapped(sender)
 			
 	def shuffle_btn_tapped(self, sender):
+		c = 2
 		while True:
 			source = self.get_rand_items()
 			new_word = source[0][0]
@@ -203,6 +204,11 @@ class MainView(View):
 				break
 			elif '<' and '>' in new_word:
 				break
+			elif not c:
+				break
+			#TODO: Counter is a temp implementation. Must be fixed into an algorithm
+			# which catches the word-count of the :db: worddb and break the loop if the count equals to 0.
+			c -= 1
 		
 		data_source = source[1]
 		self._current_word = new_word
