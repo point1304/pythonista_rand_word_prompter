@@ -1,59 +1,12 @@
-import os, sys, appex, ui, sqlite3, json
+import os, appex, sqlite3
 
-import config
+from ui import (ListDataSourceList, View, Label,
+	TableViewCell, TableView, SegmentedControl, Button, ALIGN_LEFT)
 
-class Singleton(type):
-	"""Singleton metaclass implementation"""
-	_instances = {}
-	
-	def __call__(cls, *args, **kwargs):
-		if cls not in cls._instances:
-			cls._instances[cls] = super(Singleton, 
-				cls).__call__(*args, **kwargs)
-				
-		return cls._instances[cls]
+from config import appconfig
+from json import dumps as json_dumps, loads as json_loads
 
-
-class Config(dict, metaclass=Singleton):
-
-	def __init__(self):
-		if len(sys.argv) > 1:
-			run_opt = sys.argv[1]
-			if run_opt == '--dev' or '--development':
-				self.from_mapping(config.DEVELOPMENT_CONFIG)
-		else:
-			self.from_mapping(config.DEFAULT_CONFIG)
-			
-	def from_mapping(self, mapping):
-		if not all((el == el.upper() for el in mapping.keys())):
-			raise KeyError("a :inst:Config doesn't accept non-upper keys")
-		self.update(mapping)
-
-class MyListDataSourceList (list):
-	def __init__(self, seq, datasource):
-		list.__init__(self, seq)
-		self.datasource = datasource
-	
-	def append(self, item):
-		list.append(self, item)
-		self.datasource.reload()
-	
-	def __setitem__(self, key, value):
-		list.__setitem__(self, key, value)
-		self.datasource.reload()
-	
-	def __delitem__(self, key):
-		list.__delitem__(self, key)
-		self.datasource.reload()
-	
-	def __setslice__(self, i, j, seq):
-		list.__setslice__(self, i, j, seq)
-		self.datasource.reload()
-	
-	def __delslice__(self, i, j):
-		list.__delslice__(self, i, j)
-		self.datasource.reload()			
-			
+# TODO: Remove redundant items; e.g. accessory actions.
 class MyListDataSource (object):
 	def __init__(self, items=None):
 		self.tableview = None
@@ -71,7 +24,7 @@ class MyListDataSource (object):
 		if items is not None:
 			self.items = items
 		else:
-			self.items = MyListDataSourceList([], self)
+			self.items = ListDataSourceList([], self)
 		self.text_color = None
 		self.highlight_color = None
 		self.font = None
@@ -87,7 +40,7 @@ class MyListDataSource (object):
 	
 	@items.setter
 	def items(self, value):
-		self._items = MyListDataSourceList(value, self)
+		self._items = ListDataSourceList(value, self)
 		self.reload()
 	
 	def tableview_number_of_sections(self, tv):
@@ -134,7 +87,7 @@ class MyListDataSource (object):
 	
 	def tableview_cell_for_row(self, tv, section, row):
 		item = self.items[row]
-		cell = ui.TableViewCell()
+		cell = TableViewCell()
 		cell.text_label.number_of_lines = self.number_of_lines
 		cell.name = 'cell_' + str(row)
 		if isinstance(item, dict):
@@ -150,18 +103,18 @@ class MyListDataSource (object):
 			"""BEGINNING OF CUSTOM CODE"""	
 			child_word = item.get('child_word', None)
 			if child_word is not None:
-				child_word_lb = ui.Label(frame=(10, 0, 110, 44),
+				child_word_lb = Label(frame=(10, 0, 110, 44),
 					bounds=(0, 0, 110, 44), name='child_word_lb', flex='hr')
-				child_word_lb.alignment = ui.ALIGN_LEFT
+				child_word_lb.alignment = ALIGN_LEFT
 				child_word_lb.text = child_word
 				child_word_lb.font = ('<system>', 15)
-				child_word_lb.text_color = 'blue'
+				child_word_lb.text_color = appconfig['FONT_COLOR']
 				child_word_lb.number_of_lines = 0
 				cell.add_subview(child_word_lb)
 				
 			meaning = item.get('meaning', None)
 			if meaning is not None:
-				meaning_lb = ui.Label(frame=(125, 0, 195, 44),
+				meaning_lb = Label(frame=(125, 0, 195, 44),
 					bounds=(0, 0, 170, 44), name='meaning_lb', flex='whr')
 				meaning_lb.text = meaning
 				meaning_lb.font = ('<system>', 15)
@@ -179,72 +132,152 @@ class MyListDataSource (object):
 			cell.text_label.font = self.font
 		return cell
 
-class MainView(ui.View, metaclass=Singleton):
+class MainView(View):
 	
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)
-		self.config = Config()
-		self.current_word = None
+		self._current_word = None
+		self._lang_code = 1
 		
-		self.frame = (0, 36, 359, 500)
-		self.bounds = (0, 0, 359, 500)
+		self.frame = (0, 36, 359, 467)
+		self.bounds = (0, 0, 359, 467)
 		self.name = 'main_view'
 		self.background_color = (0,0,0,0)
 		
-		source = get_rand_items()
-		self.current_word, ds_items = source[0][0], source[1]
+		source = self.get_rand_items()
+		self._current_word, ds_items = source[0][0], source[1]
 		
-		tb_v = ui.TableView(frame=(0, 36, 359, 470),
-			bounds=(0, 0, 359, 470), name='tb_v',
-			background_color = 'white', flex='wh')
-		data_source = MyListDataSource(ds_items)
-		tb_v.data_source = data_source
-		tb_v.background_color = (0,0,0,0)
+		tb_v = TableView(frame=(0, 36, 359, 431), bounds=(0, 0, 359, 431),
+			name='tb_v', background_color =(0, 0, 0, 0), flex='wh',
+			row_height=36, data_source=MyListDataSource(ds_items))
 		
-		shuffle_btn = ui.Button(frame=(359 - 64, 0, 64, 32),
+		#: FYI: iphone widget width = 356		
+		shuffle_btn = Button(frame=(289 + 15, 4, 64, 32),
 			bounds=(0, 0, 64, 32), name='shuffle_btn',
-			title='Shuffle', flex='b', action=self.shuffle_btn_tapped)
-		delete_from_db_btn = ui.Button(frame=(356 - 192, 0, 64, 32),
-			bounds=(0, 0, 64, 32), name='delete_from_db_btn', title='Delete',
-			flex='b', action=self.delete_from_db_btn_tapped)
-		endic_fetch_btn = ui.Button(frame=(356 - 128, 0, 64, 32),
-			bounds=(0, 0, 64, 32), name='endic_fetch_btn', title='Fetch',
-			flex='b', action=self.endic_fetch_btn_tapped)
-
-		components = [
-			tb_v, shuffle_btn, delete_from_db_btn,
-			endic_fetch_btn,
-		]
+			title='Shuffle', flex='lb', action=self.shuffle_btn_tapped,
+			border_width=appconfig['BORDER_WIDTH'],
+			corner_radius=appconfig['CORNER_RADIUS'])
+		delete_from_db_btn = Button(frame=(145 + 19, 4, 64, 26),
+			bounds=(0, 0, 64, 26), name='delete_from_db_btn', title='Delete',
+			flex='lb', action=self.delete_from_db_btn_tapped,
+			border_width=appconfig['BORDER_WIDTH'],
+			corner_radius=appconfig['CORNER_RADIUS'])
+		lang_ctrl = SegmentedControl(frame=(217, 4, 64, 26),
+			bounds=(0, 0, 70, 26), name='lang_ctrl', flex='lb',
+			segments=('EN', 'JP'), action=self.lang_ctrl_tapped)
+		word_lb = Label(frame=(5, 1, 136, 32), bounds=(0, 0, 136, 32),
+			name='word_lb', flex='b', text=self._current_word,
+			font=('<system-bold>', 18))
+		
+		btns = {shuffle_btn, delete_from_db_btn}
+		for btn in btns:
+			btn.flex = 'lb'
+			btn.border_width = appconfig['BORDER_WIDTH']
+			btn.corner_radius = appconfig['CORNER_RADIUS']
+			btn.border_color = appconfig['BORDER_COLOR']
+			
+		components = {tb_v, lang_ctrl, word_lb}
+		components.update(btns)
 		for component in components:
 			self.add_subview(component)
 		
+		lang_ctrl.selected_index = self._lang_code
+	
+	def lang_ctrl_tapped(self, sender):
+		# EN seg tapped				
+		if sender.selected_index == 0:
+			if self._lang_code == 1:
+				self._lang_code = 0
+				self.shuffle_btn_tapped(sender)
+		# JP seg tapped
+		elif sender.selected_index == 1:
+			if self._lang_code == 0:
+				self._lang_code = 1
+				self.shuffle_btn_tapped(sender)
+			
 	def shuffle_btn_tapped(self, sender):
-		source = get_rand_items()
-		self.current_word, data_source = source[0][0], source[1]
-		self['tb_v'].data_source.items = data_source
+		while True:
+			source = self.get_rand_items()
+			new_word = source[0][0]
+			if new_word != self._current_word:
+				break
+			elif '<' and '>' in new_word:
+				break
 		
-	def endic_fetch_btn_tapped(self, sender):
-		pass
+		data_source = source[1]
+		self._current_word = new_word
+		self['word_lb'].text = self._current_word
+		self['tb_v'].data_source.items = data_source
+		res = {
+			'wd_now' : self._current_word,
+			'lang' : self._lang_code,
+		}
+		res = json_dumps(res)
+		with open(appconfig['LAST_RESULT_PATH'], 'w') as f:
+			f.write(res)
 		
 	def delete_from_db_btn_tapped(self, sender):
 		db = _get_db()
 		cur = db.cursor()
-		cur.execute("DELETE FROM parent_word WHERE word = ?",
-			(self.current_word,))
+		if self._lang_code == 0:
+			cur.execute("DELETE FROM parent_word WHERE word = ?",
+				(self._current_word,))
+		elif self._lang_code == 1:
+			cur.execute("DELETE FROM jp_parent_word WHERE jp_word = ?",
+				(self._current_word,))
 		cur.close()
 		db.commit()
 		db.close()
-		self.shuffle_btn_tapped(self['delete_from_db_btn'])
-	
-	def size_to_fit(self):
-		super().size_to_fit()
+		self.shuffle_btn_tapped(sender)
 
-	def present(self, *args, **kwargs):
-		super().present(*args, **kwargs)
+	def get_rand_items(self):
+		def _to_ds_format(child_word_and_meaning):
+			keys = ('child_word', 'meaning')
+			return dict(zip(keys ,child_word_and_meaning))
+
+		word, sentences, child_words_and_meanings = self._rand_fetch()
+		data_source = []
+		for child_word_and_meaning in child_words_and_meanings:
+			data_source.append(_to_ds_format(child_word_and_meaning))
+		return word, data_source
+
+	def _rand_fetch(self):
+		db = _get_db()
+		cursor = db.cursor()
+		# If en mode
+		if self._lang_code == 0:
+			cursor.execute("SELECT word FROM parent_word ORDER BY RANDOM() LIMIT 1")
+			try:
+				word = cursor.fetchall()[0]
+			except IndexError:
+				return (('<No Words>',), ['Nothing Found'], 
+					[('Nothing Found', 'Please, register words')])
+			cursor.execute("SELECT sentence FROM example WHERE word = ?", word)
+			sentences = cursor.fetchall()
+			cursor.execute("""SELECT child_word, meaning FROM child_word 
+				WHERE parent_word = ?""", word)
+			child_words_and_meanings = cursor.fetchall()
+	
+		# If jp mode
+		elif self._lang_code == 1:
+			cursor.execute("SELECT jp_word FROM jp_parent_word ORDER BY RANDOM() LIMIT 1")
+			try:
+				word = cursor.fetchall()[0]
+			except IndexError:
+				return (('<単語登録無し>',), ['例えがありません'], 
+					[('単語登録無し','単語を登録してください')])
+			cursor.execute("SELECT jp_sentence FROM jp_example WHERE jp_word = ?", word)
+			sentences = cursor.fetchall()
+			cursor.execute("""SELECT jp_child_word, jp_meaning FROM jp_child_word
+				WHERE jp_parent_word = ?""", word)
+			child_words_and_meanings = cursor.fetchall()
+		
+		cursor.close()
+		db.close()
+		return word, sentences, child_words_and_meanings
 
 def _get_db():
-	config = Config()
-	path = config['DATABASE']
+	path = appconfig['DATABASE']
 	if not os.path.exists(path):
 		if not os.path.exists(os.path.dirname(path)):
 			os.makedirs(os.path.dirname(path))
@@ -257,36 +290,8 @@ def _get_db():
 		db = sqlite3.connect(path,
 		detect_types=sqlite3.PARSE_DECLTYPES)
 		db.execute("PRAGMA foreign_keys = ON")
-	return db
-	
-def rand_fetch():
-	db = _get_db()
-	cursor = db.cursor()
-	cursor.execute("SELECT word FROM parent_word ORDER BY RANDOM() LIMIT 1")
-	try:
-		word = cursor.fetchall()[0]
-	except IndexError:
-		return 'Nothing Found', ['Nothing Found'], [('Nothing Found', 'Please, register words')]
-	cursor.execute("SELECT sentence FROM example WHERE word = ?", word)
-	sentences = cursor.fetchall()
-	cursor.execute("""SELECT child_word, meaning FROM child_word 
-		WHERE parent_word = ?""", word)
-	child_words_and_meanings = cursor.fetchall()
-	cursor.close()
-	db.close()
-	return word, sentences, child_words_and_meanings
+	return db	
 
-def to_dict(child_word_and_meaning):
-	keys = ('child_word', 'meaning')
-	return dict(zip(keys ,child_word_and_meaning))
-
-def get_rand_items():
-	word, sentences, child_words_and_meanings = rand_fetch()
-	data_source = []
-	for child_word_and_meaning in child_words_and_meanings:
-		data_source.append(to_dict(child_word_and_meaning))
-		
-	return word, data_source
 
 def main():
 	widget_name = __file__ + str(os.stat(__file__).st_mtime)
@@ -295,8 +300,22 @@ def main():
 		return
 	
 	mv = MainView()
+	
+	#: Button sizing; if a :param: `title` or `image` is passed to the
+	#: ui.Button's constructor, it automatically determines its size
+	#: ignoring the width and length elements of the :param: `frame` and `bounds`.
+	#: This is not a bug but an intended feature and requires a user to re-configure
+	#: :inst: ui.Buttons in a way that s/he wants them to be.
+	btns = [mv['shuffle_btn'], mv['delete_from_db_btn'],]
+	btn_width = appconfig['BTN_WIDTH']
+	for btn in btns:
+		f_now = btn.frame
+		btn.frame = (f_now[0] - (btn_width - f_now[2]), f_now[1], f_now[2], f_now[3])
+		btn.width = btn_width
+		btn.height = 26
+	print(mv.frame, mv.bounds)
+	print(mv['tb_v'].frame)
 	appex.set_widget_view(mv)
-
 
 if __name__ == '__main__':
 	main()
